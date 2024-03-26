@@ -7,6 +7,7 @@
 #define SUXSEM_DEBOUNCE_THRESHOLD    50
 #define SUXSEM_PRESSED_LEVEL        LOW
 #define SUXSEM_DIMMING_TICK_MS        8
+#define SUXSEM_FADEOUT_MS          2000
 
 class UsermodSuxsem : public Usermod {
   private:
@@ -40,7 +41,7 @@ class UsermodSuxsem : public Usermod {
       } else if (buttonPressedTime != 0 && digitalRead(SUXSEM_AC_BTN_PIN) != SUXSEM_PRESSED_LEVEL) { //rilascio
         if (!alreadyTurnedOn && elapsed <= SUXSEM_SHORT_MAX_MS && elapsed > SUXSEM_DEBOUNCE_THRESHOLD && bri != 0) {
           jsonTransitionOnce = true;
-          strip.setTransition(3000);
+          strip.setTransition(SUXSEM_FADEOUT_MS);
           bri = 0;
           stateUpdated(CALL_MODE_BUTTON);
         }
