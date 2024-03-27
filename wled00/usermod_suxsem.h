@@ -100,11 +100,11 @@ class UsermodSuxsem : public Usermod {
       JsonObject top = root[FPSTR(_name)];
       bool configComplete = !top.isNull();
       configComplete &= getJsonValue(top[FPSTR(_enabled)], enabled, false);
-      configComplete &= getJsonValue(top["btnPin"], fadeoutMs, SUXSEM_AC_BTN_PIN);
-      configComplete &= getJsonValue(top["shortMaxMs"], fadeoutMs, SUXSEM_SHORT_MAX_MS);
-      configComplete &= getJsonValue(top["debounceMs"], fadeoutMs, SUXSEM_DEBOUNCE_THRESHOLD);
-      configComplete &= getJsonValue(top["invertPressed"], fadeoutMs, SUXSEM_INVERT_PRESSED);
-      configComplete &= getJsonValue(top["dimmingTickMs"], fadeoutMs, SUXSEM_DIMMING_TICK_MS);
+      configComplete &= getJsonValue(top["btnPin"], btnPin, SUXSEM_AC_BTN_PIN);
+      configComplete &= getJsonValue(top["shortMaxMs"], shortMaxMs, SUXSEM_SHORT_MAX_MS);
+      configComplete &= getJsonValue(top["debounceMs"], debounceMs, SUXSEM_DEBOUNCE_THRESHOLD);
+      configComplete &= getJsonValue(top["invertPressed"], invertPressed, SUXSEM_INVERT_PRESSED);
+      configComplete &= getJsonValue(top["dimmingTickMs"], dimmingTickMs, SUXSEM_DIMMING_TICK_MS);
       configComplete &= getJsonValue(top["fadeoutMs"], fadeoutMs, SUXSEM_FADEOUT_MS);
       return configComplete;
     }
