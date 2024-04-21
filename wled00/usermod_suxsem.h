@@ -8,6 +8,7 @@
 #define SUXSEM_INVERT_PRESSED     false
 #define SUXSEM_DIMMING_TICK_MS        8
 #define SUXSEM_FADEOUT_MS          2000
+#define SUXSEM_ON_PRESET              2
 
 class UsermodSuxsem : public Usermod {
   private:
@@ -20,6 +21,7 @@ class UsermodSuxsem : public Usermod {
     bool invertPressed = SUXSEM_INVERT_PRESSED;
     unsigned int dimmingTickMs = SUXSEM_DIMMING_TICK_MS;
     unsigned int fadeoutMs = SUXSEM_FADEOUT_MS;
+    unsigned char onPreset = SUXSEM_ON_PRESET;
     
     bool enabled = false;
 
@@ -48,9 +50,7 @@ class UsermodSuxsem : public Usermod {
         buttonPressedTime = now;
       } else if (buttonPressedTime != 0 && elapsed > debounceMs && !alreadyTurnedOn && bri == 0) { //effettivamente premuto
         //TURN ON
-        jsonTransitionOnce = true;
-        strip.setTransition(0);
-        bri = 255;
+        applyPreset(onPreset, CALL_MODE_BUTTON);
         stateUpdated(CALL_MODE_BUTTON);
         alreadyTurnedOn = true;
       } else if (buttonPressedTime != 0 && digitalRead(btnPin) == invertPressed) { //rilascio
@@ -93,6 +93,7 @@ class UsermodSuxsem : public Usermod {
       top["invertPressed"] = invertPressed;
       top["dimmingTickMs"] = dimmingTickMs;
       top["fadeoutMs"] = fadeoutMs;
+      top["onPreset"] = onPreset;
     }
 
     bool readFromConfig(JsonObject& root) override
@@ -106,6 +107,7 @@ class UsermodSuxsem : public Usermod {
       configComplete &= getJsonValue(top["invertPressed"], invertPressed, SUXSEM_INVERT_PRESSED);
       configComplete &= getJsonValue(top["dimmingTickMs"], dimmingTickMs, SUXSEM_DIMMING_TICK_MS);
       configComplete &= getJsonValue(top["fadeoutMs"], fadeoutMs, SUXSEM_FADEOUT_MS);
+      configComplete &= getJsonValue(top["onPreset"], onPreset, SUXSEM_ON_PRESET);
       return configComplete;
     }
 };
