@@ -110,6 +110,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   Bus::setGlobalAWMode(hw_led[F("rgbwm")] | AW_GLOBAL_DISABLED);
   CJSON(correctWB, hw_led["cct"]);
   CJSON(cctFromRgb, hw_led[F("cr")]);
+  CJSON(cctICused, hw_led[F("ic")]);
   CJSON(strip.cctBlending, hw_led[F("cb")]);
   Bus::setCCTBlend(strip.cctBlending);
   strip.setTargetFps(hw_led["fps"]); //NOP if 0, default 42 FPS
@@ -228,6 +229,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
 
   // read multiple button configuration
   JsonObject btn_obj = hw["btn"];
+  CJSON(touchThreshold, btn_obj[F("tt")]);
   bool pull = btn_obj[F("pull")] | (!disablePullUp); // if true, pullup is enabled
   disablePullUp = !pull;
   JsonArray hw_btn_ins = btn_obj["ins"];
@@ -252,6 +254,13 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
           btnPin[s] = -1;
           pinManager.deallocatePin(pin,PinOwner::Button);
         }
+        //if touch pin, enable the touch interrupt on ESP32 S2 & S3
+        #ifdef SOC_TOUCH_VERSION_2    // ESP32 S2 and S3 have a fucntion to check touch state but need to attach an interrupt to do so
+        if ((buttonType[s] == BTN_TYPE_TOUCH || buttonType[s] == BTN_TYPE_TOUCH_SWITCH)) 
+        {
+          touchAttachInterrupt(btnPin[s], touchButtonISR, 256 + (touchThreshold << 4)); // threshold on Touch V2 is much higher (1500 is a value given by Espressif example, I measured changes of over 5000)
+        }
+        #endif 
         else
       #endif
         {
@@ -308,7 +317,7 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
       }
     }
   }
-  CJSON(touchThreshold,btn_obj[F("tt")]);
+
   CJSON(buttonPublishMqtt,btn_obj["mqtt"]);
 
   #ifndef WLED_DISABLE_INFRARED
@@ -326,12 +335,16 @@ bool deserializeConfig(JsonObject doc, bool fromFS) {
   CJSON(irApplyToAllSelected, hw["ir"]["sel"]);
 
   JsonObject relay = hw[F("relay")];
+
+  if (relay.containsKey("odrain")) {
+    rlyOpenDrain = relay["odrain"];
+  }
   int hw_relay_pin = relay["pin"] | -2;
   if (hw_relay_pin > -2) {
     pinManager.deallocatePin(rlyPin, PinOwner::Relay);
     if (pinManager.allocatePin(hw_relay_pin,true, PinOwner::Relay)) {
       rlyPin = hw_relay_pin;
-      pinMode(rlyPin, OUTPUT);
+      pinMode(rlyPin, rlyOpenDrain ? OUTPUT_OPEN_DRAIN : OUTPUT);
     } else {
       rlyPin = -1;
     }
@@ -767,6 +780,7 @@ void serializeConfig() {
   hw_led[F("ledma")] = 0; // no longer used
   hw_led["cct"] = correctWB;
   hw_led[F("cr")] = cctFromRgb;
+  hw_led[F("ic")] = cctICused;
   hw_led[F("cb")] = strip.cctBlending;
   hw_led["fps"] = strip.getTargetFps();
   hw_led[F("rgbwm")] = Bus::getGlobalAWMode(); // global auto white mode override
@@ -858,6 +872,7 @@ void serializeConfig() {
   JsonObject hw_relay = hw.createNestedObject(F("relay"));
   hw_relay["pin"] = rlyPin;
   hw_relay["rev"] = !rlyMde;
+  hw_relay["odrain"] = rlyOpenDrain;
 
   hw[F("baud")] = serialBaud;
 

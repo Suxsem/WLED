@@ -455,18 +455,18 @@ CRGBPalette16 IRAM_ATTR &Segment::currentPalette(CRGBPalette16 &targetPalette, u
 // relies on WS2812FX::service() to call it for each frame
 void Segment::handleRandomPalette() {
   // is it time to generate a new palette?
-  if ((millis()/1000U) - _lastPaletteChange > randomPaletteChangeTime) {
+  if ((uint16_t)((uint16_t)(millis() / 1000U) - _lastPaletteChange) > randomPaletteChangeTime){
         _newRandomPalette = useHarmonicRandomPalette ? generateHarmonicRandomPalette(_randomPalette) : generateRandomPalette();
-        _lastPaletteChange = millis()/1000U;
-        _lastPaletteBlend = (uint16_t)(millis() & 0xFFFF)-512; // starts blending immediately
+        _lastPaletteChange = (uint16_t)(millis() / 1000U);
+        _lastPaletteBlend = (uint16_t)((uint16_t)millis() - 512); // starts blending immediately   
   }
 
   // if palette transitions is enabled, blend it according to Transition Time (if longer than minimum given by service calls)
   if (strip.paletteFade) {
     // assumes that 128 updates are sufficient to blend a palette, so shift by 7 (can be more, can be less)
     // in reality there need to be 255 blends to fully blend two entirely different palettes
-    if ((millis() & 0xFFFF) - _lastPaletteBlend < strip.getTransition() >> 7) return; // not yet time to fade, delay the update
-    _lastPaletteBlend = millis();
+    if ((uint16_t)((uint16_t)millis() - _lastPaletteBlend) < strip.getTransition() >> 7) return; // not yet time to fade, delay the update
+    _lastPaletteBlend = (uint16_t)millis();
   }
   nblendPaletteTowardPalette(_randomPalette, _newRandomPalette, 48);
 }
@@ -735,11 +735,7 @@ void IRAM_ATTR Segment::setPixelColor(int i, uint32_t col)
   uint16_t len = length();
   uint8_t _bri_t = currentBri();
   if (_bri_t < 255) {
-    byte r = scale8(R(col), _bri_t);
-    byte g = scale8(G(col), _bri_t);
-    byte b = scale8(B(col), _bri_t);
-    byte w = scale8(W(col), _bri_t);
-    col = RGBW32(r, g, b, w);
+    col = color_fade(col, _bri_t);
   }
 
   // expand pixel (taking into account start, grouping, spacing [and offset])
@@ -777,6 +773,7 @@ void IRAM_ATTR Segment::setPixelColor(int i, uint32_t col)
   }
 }
 
+#ifdef WLED_USE_AA_PIXELS
 // anti-aliased normalized version of setPixelColor()
 void Segment::setPixelColor(float i, uint32_t col, bool aa)
 {
@@ -809,6 +806,7 @@ void Segment::setPixelColor(float i, uint32_t col, bool aa)
     setPixelColor(uint16_t(roundf(fC)) | (vStrip<<16), col);
   }
 }
+#endif
 
 uint32_t IRAM_ATTR Segment::getPixelColor(int i)
 {
@@ -993,33 +991,43 @@ void Segment::fadeToBlackBy(uint8_t fadeBy) {
 /*
  * blurs segment content, source: FastLED colorutils.cpp
  */
-void Segment::blur(uint8_t blur_amount) {
+void Segment::blur(uint8_t blur_amount, bool smear) {
   if (!isActive() || blur_amount == 0) return; // optimization: 0 means "don't blur"
 #ifndef WLED_DISABLE_2D
   if (is2D()) {
     // compatibility with 2D
     const unsigned cols = virtualWidth();
     const unsigned rows = virtualHeight();
-    for (unsigned i = 0; i < rows; i++) blurRow(i, blur_amount); // blur all rows
-    for (unsigned k = 0; k < cols; k++) blurCol(k, blur_amount); // blur all columns
+    for (unsigned i = 0; i < rows; i++) blurRow(i, blur_amount, smear); // blur all rows
+    for (unsigned k = 0; k < cols; k++) blurCol(k, blur_amount, smear); // blur all columns
     return;
   }
 #endif
-  uint8_t keep = 255 - blur_amount;
+  uint8_t keep = smear ? 255 : 255 - blur_amount;
   uint8_t seep = blur_amount >> 1;
-  uint32_t carryover = BLACK;
   unsigned vlength = virtualLength();
+  uint32_t carryover = BLACK;
+  uint32_t lastnew;
+  uint32_t last;
+  uint32_t curnew;
   for (unsigned i = 0; i < vlength; i++) {
     uint32_t cur = getPixelColor(i);
     uint32_t part = color_fade(cur, seep);
-    cur = color_add(color_fade(cur, keep), carryover, true);
+    curnew = color_fade(cur, keep);
     if (i > 0) {
-      uint32_t c = getPixelColor(i-1);
-      setPixelColor(i-1, color_add(c, part, true));
+      if (carryover)
+        curnew = color_add(curnew, carryover, true);
+      uint32_t prev = color_add(lastnew, part, true);
+      if (last != prev) // optimization: only set pixel if color has changed
+        setPixelColor(i - 1, prev);
     }
-    setPixelColor(i, cur);
+    else // first pixel
+      setPixelColor(i, curnew);
+    lastnew = curnew;
+    last = cur; // save original value for comparison on next iteration
     carryover = part;
   }
+  setPixelColor(vlength - 1, curnew);
 }
 
 /*
@@ -1205,7 +1213,6 @@ void WS2812FX::service() {
 
       seg.next_time = nowUp + delay;
     }
-//    if (_segment_index == _queuedChangesSegId) setUpSegmentFromQueuedChanges();
     _segment_index++;
   }
   _virtualSegmentLength = 0;
@@ -1213,7 +1220,7 @@ void WS2812FX::service() {
   _triggered = false;
 
   #ifdef WLED_DEBUG
-  if (millis() - nowUp > _frametime) DEBUG_PRINTLN(F("Slow effects."));
+  if (millis() - nowUp > _frametime) DEBUG_PRINTF_P(PSTR("Slow effects %u/%d.\n"), (unsigned)(millis()-nowUp), (int)_frametime);
   #endif
   if (doShow) {
     yield();
@@ -1221,7 +1228,7 @@ void WS2812FX::service() {
     show();
   }
   #ifdef WLED_DEBUG
-  if (millis() - nowUp > _frametime) DEBUG_PRINTLN(F("Slow strip."));
+  if (millis() - nowUp > _frametime) DEBUG_PRINTF_P(PSTR("Slow strip %u/%d.\n"), (unsigned)(millis()-nowUp), (int)_frametime);
   #endif
 }
 
@@ -1431,31 +1438,12 @@ void WS2812FX::setSegment(uint8_t segId, uint16_t i1, uint16_t i2, uint8_t group
     appendSegment(Segment(0, strip.getLengthTotal()));
     segId = getSegmentsNum()-1; // segments are added at the end of list
   }
-/*
-  if (_queuedChangesSegId == segId) _queuedChangesSegId = 255; // cancel queued change if already queued for this segment
-
-  if (segId < getMaxSegments() && segId == getCurrSegmentId() && isServicing()) { // queue change to prevent concurrent access
-    // queuing a change for a second segment will lead to the loss of the first change if not yet applied
-    // however this is not a problem as the queued change is applied immediately after the effect function in that segment returns
-    _qStart  = i1; _qStop   = i2; _qStartY = startY; _qStopY  = stopY;
-    _qGrouping = grouping; _qSpacing  = spacing; _qOffset   = offset;
-    _queuedChangesSegId = segId;
-    DEBUG_PRINT(F("Segment queued: ")); DEBUG_PRINTLN(segId);
-    return; // queued changes are applied immediately after effect function returns
-  }
-*/
   suspend();
   _segments[segId].setUp(i1, i2, grouping, spacing, offset, startY, stopY);
   resume();
   if (segId > 0 && segId == getSegmentsNum()-1 && i2 <= i1) _segments.pop_back(); // if last segment was deleted remove it from vector
 }
-/*
-void WS2812FX::setUpSegmentFromQueuedChanges() {
-  if (_queuedChangesSegId >= getSegmentsNum()) return;
-  _segments[_queuedChangesSegId].setUp(_qStart, _qStop, _qGrouping, _qSpacing, _qOffset, _qStartY, _qStopY);
-  _queuedChangesSegId = 255;
-}
-*/
+
 void WS2812FX::resetSegments() {
   _segments.clear(); // destructs all Segment as part of clearing
   #ifndef WLED_DISABLE_2D
@@ -1676,19 +1664,23 @@ bool WS2812FX::deserializeMap(uint8_t n) {
     return false; // if file does not load properly then exit
   }
 
-  DEBUG_PRINT(F("Reading LED map from ")); DEBUG_PRINTLN(fileName);
+  if (customMappingTable) delete[] customMappingTable;
+  customMappingTable = new uint16_t[getLengthTotal()];
 
-  if (customMappingTable == nullptr) customMappingTable = new uint16_t[getLengthTotal()];
-
-  JsonObject root = pDoc->as<JsonObject>();
-  JsonArray map = root[F("map")];
-  if (!map.isNull() && map.size()) {  // not an empty map
-    customMappingSize = min((unsigned)map.size(), (unsigned)getLengthTotal());
-    for (unsigned i=0; i<customMappingSize; i++) customMappingTable[i] = (uint16_t) (map[i]<0 ? 0xFFFFU : map[i]);
+  if (customMappingTable) {
+    DEBUG_PRINT(F("Reading LED map from ")); DEBUG_PRINTLN(fileName);
+    JsonObject root = pDoc->as<JsonObject>();
+    JsonArray map = root[F("map")];
+    if (!map.isNull() && map.size()) {  // not an empty map
+      customMappingSize = min((unsigned)map.size(), (unsigned)getLengthTotal());
+      for (unsigned i=0; i<customMappingSize; i++) customMappingTable[i] = (uint16_t) (map[i]<0 ? 0xFFFFU : map[i]);
+    }
+  } else {
+    DEBUG_PRINTLN(F("ERROR LED map allocation error."));
   }
 
   releaseJSONBufferLock();
-  return true;
+  return (customMappingSize > 0);
 }
 
 uint16_t IRAM_ATTR WS2812FX::getMappedPixelIndex(uint16_t index) {

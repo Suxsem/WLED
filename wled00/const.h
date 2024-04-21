@@ -53,24 +53,16 @@
       #define WLED_MAX_BUSSES 3               // will allow 2 digital & 1 analog (or the other way around)
       #define WLED_MIN_VIRTUAL_BUSSES 3
     #elif defined(CONFIG_IDF_TARGET_ESP32S2)  // 4 RMT, 8 LEDC, only has 1 I2S bus, supported in NPB
-      #if defined(USERMOD_AUDIOREACTIVE)      // requested by @softhack007 https://github.com/blazoncek/WLED/issues/33
-        #define WLED_MAX_BUSSES 6             // will allow 4 digital & 2 analog
-        #define WLED_MIN_VIRTUAL_BUSSES 4
-      #else
-        #define WLED_MAX_BUSSES 7             // will allow 5 digital & 2 analog
-        #define WLED_MIN_VIRTUAL_BUSSES 3
-      #endif
+      // the 5th bus (I2S) will prevent Audioreactive usermod from functioning (it is last used though)
+      #define WLED_MAX_BUSSES 7               // will allow 5 digital & 2 analog
+      #define WLED_MIN_VIRTUAL_BUSSES 3
     #elif defined(CONFIG_IDF_TARGET_ESP32S3)  // 4 RMT, 8 LEDC, has 2 I2S but NPB does not support them ATM
       #define WLED_MAX_BUSSES 6               // will allow 4 digital & 2 analog
       #define WLED_MIN_VIRTUAL_BUSSES 4
     #else
-      #if defined(USERMOD_AUDIOREACTIVE)      // requested by @softhack007 https://github.com/blazoncek/WLED/issues/33
-        #define WLED_MAX_BUSSES 8
-        #define WLED_MIN_VIRTUAL_BUSSES 2
-      #else
-        #define WLED_MAX_BUSSES 10
-        #define WLED_MIN_VIRTUAL_BUSSES 0
-      #endif
+      // the 10th digital bus (I2S0) will prevent Audioreactive usermod from functioning (it is last used though)
+      #define WLED_MAX_BUSSES 10
+      #define WLED_MIN_VIRTUAL_BUSSES 0
     #endif
   #endif
 #else
@@ -181,6 +173,7 @@
 #define USERMOD_ID_ANIMARTRIX            45     //Usermod "usermod_v2_animartrix.h"
 #define USERMOD_ID_HTTP_PULL_LIGHT_CONTROL 46   //usermod "usermod_v2_HttpPullLightControl.h"
 #define USERMOD_ID_TETRISAI              47     //Usermod "usermod_v2_tetris.h"
+#define USERMOD_ID_MAX17048              48     //Usermod "usermod_max17048.h"
 
 //Access point behavior
 #define AP_BEHAVIOR_BOOT_NO_CONN          0     //Open AP when no connection after boot
@@ -515,11 +508,11 @@
 
 //this is merely a default now and can be changed at runtime
 #ifndef LEDPIN
-//#if defined(ESP8266) || (defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(ARDUINO_ESP32_PICO)
+#if defined(ESP8266) || defined(CONFIG_IDF_TARGET_ESP32C3)  //|| (defined(ARDUINO_ARCH_ESP32) && defined(BOARD_HAS_PSRAM)) || defined(ARDUINO_ESP32_PICO)
   #define LEDPIN 2    // GPIO2 (D4) on Wemos D1 mini compatible boards, safe to use on any board
-//#else
-//  #define LEDPIN 16   // aligns with GPIO2 (D4) on Wemos D1 mini32 compatible boards
-//#endif
+#else
+  #define LEDPIN 16   // aligns with GPIO2 (D4) on Wemos D1 mini32 compatible boards (if it is unusable it will be reassigned in WS2812FX::finalizeInit())
+#endif
 #endif
 
 #ifdef WLED_ENABLE_DMX
