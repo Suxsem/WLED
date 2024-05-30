@@ -272,6 +272,7 @@ function onLoad()
 
 	selectSlot(0);
 	updateTablinks(0);
+	handleLocationHash();
 	cpick.on("input:end", () => {setColor(1);});
 	cpick.on("color:change", () => {updatePSliders()});
 	pmtLS = localStorage.getItem('wledPmt');
@@ -304,7 +305,6 @@ function updateTablinks(tabI)
 {
 	var tablinks = gEBCN("tablinks");
 	for (var i of tablinks) i.classList.remove('active');
-	if (pcMode) return;
 	tablinks[tabI].classList.add('active');
 }
 
@@ -315,6 +315,21 @@ function openTab(tabI, force = false)
 	_C.classList.toggle('smooth', false);
 	_C.style.setProperty('--i', iSlide);
 	updateTablinks(tabI);
+	switch (tabI) {
+		case 0: window.location.hash = "Colors"; break;
+		case 1: window.location.hash = "Effects"; break;
+		case 2: window.location.hash = "Segments"; break;
+		case 3: window.location.hash = "Presets"; break;
+	}
+}
+
+function handleLocationHash() {
+	switch (window.location.hash) {
+		case "#Colors": openTab(0); break;
+		case "#Effects": openTab(1); break;
+		case "#Segments": openTab(2); break;
+		case "#Presets": openTab(3); break;
+	}
 }
 
 var timeout;
@@ -430,7 +445,7 @@ function presetError(empty)
 		if (bckstr.length > 10) hasBackup = true;
 	} catch (e) {}
 
-	var cn = `<div class="pres c" ${empty?'style="padding:8px;margin-top: 16px;"':'onclick="pmtLast=0;loadPresets();" style="cursor:pointer;padding:8px;margin-top: 16px;"'}>`;
+	var cn = `<div class="pres c" style="padding:8px;margin-bottom:8px;${empty?'':'cursor:pointer;'}" ${empty?'':'onclick="pmtLast=0;loadPresets();"'}>`;
 	if (empty)
 		cn += `You have no presets yet!`;
 	else
@@ -442,8 +457,8 @@ function presetError(empty)
 			cn += `However, there is backup preset data of a previous installation available.<br>(Saving a preset will hide this and overwrite the backup)`;
 		else
 			cn += `Here is a backup of the last known good state:`;
-		cn += `<textarea id="bck"></textarea><br><button class="btn" onclick="cpBck()">Copy to clipboard</button>`;
-		cn += `<br><button type="button" class="btn" onclick="restore(gId('bck').value)">Restore</button>`;
+		cn += `<textarea id="bck"></textarea><br><button class="btn" style="margin-top:12px;" onclick="cpBck()">Copy to clipboard</button>`;
+		cn += `<br><button type="button" class="btn" style="margin-top:12px;" onclick="restore(gId('bck').value)">Restore</button>`;
 	}
 	cn += `</div>`;
 	gId('pcont').innerHTML = cn;
@@ -786,6 +801,7 @@ function populateSegments(s)
 							`<option value="1" ${inst.m12==1?' selected':''}>Bar</option>`+
 							`<option value="2" ${inst.m12==2?' selected':''}>Arc</option>`+
 							`<option value="3" ${inst.m12==3?' selected':''}>Corner</option>`+
+							`<option value="4" ${inst.m12==4?' selected':''}>Pinwheel</option>`+
 						`</select></div>`+
 					`</div>`;
 		let sndSim = `<div data-snd="si" class="lbl-s hide">Sound sim<br>`+
@@ -3051,8 +3067,7 @@ function togglePcMode(fromB = false)
 	pcMode = (wW >= 1024) && pcModeA;
 	if (cpick) cpick.resize(pcMode && wW>1023 && wW<1250 ? 230 : 260); // for tablet in landscape
 	if (!fromB && ((wW < 1024 && lastw < 1024) || (wW >= 1024 && lastw >= 1024))) return; // no change in size and called from size()
-	openTab(0, true);
-	updateTablinks(0);
+	if (pcMode) openTab(0, true);
 	gId('buttonPcm').className = (pcMode) ? "active":"";
 	gId('bot').style.height = (pcMode && !cfg.comp.pcmbot) ? "0":"auto";
 	sCol('--bh', gId('bot').clientHeight + "px");
@@ -3214,6 +3229,7 @@ size();
 _C.style.setProperty('--n', N);
 
 window.addEventListener('resize', size, true);
+window.addEventListener('hashchange', handleLocationHash);
 
 _C.addEventListener('mousedown', lock, false);
 _C.addEventListener('touchstart', lock, false);
