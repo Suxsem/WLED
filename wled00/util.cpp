@@ -87,88 +87,28 @@ bool updateVal(const char* req, const char* key, byte* val, byte minv, byte maxv
   return true;
 }
 
-
-//append a numeric setting to string buffer
-void sappend(char stype, const char* key, int val)
-{
-  char ds[] = "d.Sf.";
-
-  switch(stype)
-  {
-    case 'c': //checkbox
-      oappend(ds);
-      oappend(key);
-      oappend(".checked=");
-      oappendi(val);
-      oappend(";");
-      break;
-    case 'v': //numeric
-      oappend(ds);
-      oappend(key);
-      oappend(".value=");
-      oappendi(val);
-      oappend(";");
-      break;
-    case 'i': //selectedIndex
-      oappend(ds);
-      oappend(key);
-      oappend(SET_F(".selectedIndex="));
-      oappendi(val);
-      oappend(";");
-      break;
-  }
+static size_t printSetFormInput(Print& settingsScript, const char* key, const char* selector, int value) {
+  return settingsScript.printf_P(PSTR("d.Sf.%s.%s=%d;"), key, selector, value);
 }
 
-
-//append a string setting to buffer
-void sappends(char stype, const char* key, char* val)
-{
-  switch(stype)
-  {
-    case 's': {//string (we can interpret val as char*)
-      String buf = val;
-      //convert "%" to "%%" to make EspAsyncWebServer happy
-      //buf.replace("%","%%");
-      oappend("d.Sf.");
-      oappend(key);
-      oappend(".value=\"");
-      oappend(buf.c_str());
-      oappend("\";");
-      break;}
-    case 'm': //message
-      oappend(SET_F("d.getElementsByClassName"));
-      oappend(key);
-      oappend(SET_F(".innerHTML=\""));
-      oappend(val);
-      oappend("\";");
-      break;
-  }
+size_t printSetFormCheckbox(Print& settingsScript, const char* key, int val) {
+  return printSetFormInput(settingsScript, key, PSTR("checked"), val);
+}
+size_t printSetFormValue(Print& settingsScript, const char* key, int val) {
+  return printSetFormInput(settingsScript, key, PSTR("value"), val);
+}
+size_t printSetFormIndex(Print& settingsScript, const char* key, int index) {
+  return printSetFormInput(settingsScript, key, PSTR("selectedIndex"), index);
 }
 
-
-bool oappendi(int i)
-{
-  char s[11];
-  sprintf(s, "%d", i);
-  return oappend(s);
+size_t printSetFormValue(Print& settingsScript, const char* key, const char* val) {
+  return settingsScript.printf_P(PSTR("d.Sf.%s.value=\"%s\";"),key,val);
 }
 
-
-bool oappend(const char* txt)
-{
-  unsigned len = strlen(txt);
-  if ((obuf == nullptr) || (olen + len >= SETTINGS_STACK_BUF_SIZE)) { // sanity checks
-#ifdef WLED_DEBUG
-    DEBUG_PRINT(F("oappend() buffer overflow. Cannot append "));
-    DEBUG_PRINT(len); DEBUG_PRINT(F(" bytes \t\""));
-    DEBUG_PRINT(txt); DEBUG_PRINTLN(F("\""));
-#endif
-    return false;        // buffer full
-  }
-  strcpy(obuf + olen, txt);
-  olen += len;
-  return true;
+size_t printSetClassElementHTML(Print& settingsScript, const char* key, const int index, const char* val) {
+  return settingsScript.printf_P(PSTR("d.getElementsByClassName(\"%s\")[%d].innerHTML=\"%s\";"), key, index, val);
 }
+
 
 
 void prepareHostname(char* hostname)
@@ -213,21 +153,33 @@ bool requestJSONBufferLock(uint8_t module)
     DEBUG_PRINTLN(F("ERROR: JSON buffer not allocated!"));
     return false;
   }
-  unsigned long now = millis();
 
-  while (jsonBufferLock && millis()-now < 250) delay(1); // wait for fraction for buffer lock
-
+#if defined(ARDUINO_ARCH_ESP32)
+  // Use a recursive mutex type in case our task is the one holding the JSON buffer.
+  // This can happen during large JSON web transactions.  In this case, we continue immediately
+  // and then will return out below if the lock is still held.
+  if (xSemaphoreTakeRecursive(jsonBufferLockMutex, 250) == pdFALSE) return false;  // timed out waiting
+#elif defined(ARDUINO_ARCH_ESP8266)
+  // If we're in system context, delay() won't return control to the user context, so there's
+  // no point in waiting.
+  if (can_yield()) {
+    unsigned long now = millis();
+    while (jsonBufferLock && (millis()-now < 250)) delay(1); // wait for fraction for buffer lock
+  }
+#else
+  #error Unsupported task framework - fix requestJSONBufferLock
+#endif  
+  // If the lock is still held - by us, or by another task
   if (jsonBufferLock) {
-    DEBUG_PRINT(F("ERROR: Locking JSON buffer failed! (still locked by "));
-    DEBUG_PRINT(jsonBufferLock);
-    DEBUG_PRINTLN(")");
-    return false; // waiting time-outed
+    DEBUG_PRINTF_P(PSTR("ERROR: Locking JSON buffer (%d) failed! (still locked by %d)\n"), module, jsonBufferLock);
+#ifdef ARDUINO_ARCH_ESP32
+    xSemaphoreGiveRecursive(jsonBufferLockMutex);
+#endif
+    return false;
   }
 
   jsonBufferLock = module ? module : 255;
-  DEBUG_PRINT(F("JSON buffer locked. ("));
-  DEBUG_PRINT(jsonBufferLock);
-  DEBUG_PRINTLN(")");
+  DEBUG_PRINTF_P(PSTR("JSON buffer locked. (%d)\n"), jsonBufferLock);
   pDoc->clear();
   return true;
 }
@@ -235,10 +187,11 @@ bool requestJSONBufferLock(uint8_t module)
 
 void releaseJSONBufferLock()
 {
-  DEBUG_PRINT(F("JSON buffer released. ("));
-  DEBUG_PRINT(jsonBufferLock);
-  DEBUG_PRINTLN(")");
+  DEBUG_PRINTF_P(PSTR("JSON buffer released. (%d)\n"), jsonBufferLock);
   jsonBufferLock = 0;
+#ifdef ARDUINO_ARCH_ESP32
+  xSemaphoreGiveRecursive(jsonBufferLockMutex);
+#endif  
 }
 
 
@@ -598,4 +551,9 @@ uint8_t get_random_wheel_index(uint8_t pos) {
     d = MIN(x, y);
   }
   return r;
+}
+
+// float version of map()
+float mapf(float x, float in_min, float in_max, float out_min, float out_max) {
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
